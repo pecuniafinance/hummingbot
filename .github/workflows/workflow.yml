@@ -4,20 +4,20 @@ on:
   push:
     branches: [master, development, 'refactor/unit_tests**', 'epic/**']
   pull_request:
-    branches: [master, development, 'refactor/unit_tests**', 'epic/**']
+    branches: [master, development, 'refactor/unit_tests**', 'epic/**', 'feat/gateway-v2']
     types: [ready_for_review, opened, synchronize, reopened]
 
 jobs:
   build_hummingbot:
-    name: build + stable tests
-    if: github.event.pull_request.draft == false
+    name: Hummingbot build + stable tests
+    if: github.event.pull_request.draft == false && github.base_ref != 'feat/gateway-v2'
     runs-on: "ubuntu-latest"
 
     steps:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
-    
+
       # Use cache's hashFiles function to check for changes in core code
       - name: Check for code changes
         id: program-changes
@@ -28,7 +28,7 @@ jobs:
         with:
           path: README.md # placeholder file
           key: ${{ runner.os }}-build-${{ env.CACHE_NUMBER }}-${{ hashFiles('hummingbot/*', '**/*.py', '**/*.py*', '**/*.pxd', 'test/*') }}
-      
+
       # Remove envs directory if exists to prevent bin/tar restore errors
       - name: Remove envs directory
         run: rm -Rf /usr/share/miniconda/envs
@@ -69,7 +69,7 @@ jobs:
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda install -c conda-forge pre_commit
-        
+
       # Install hummingbot env if environment-linux.yml has changed
       - name: Install Hummingbot
         if: steps.conda-dependencies.outputs.cache-hit != 'true'
@@ -79,13 +79,13 @@ jobs:
           ./install
 
       # Compile and run tests if code has changed
-      - name: Run Flake8
+      - name: Run Flake8 and eslint
         shell: bash
         if: steps.program-changes.outputs.cache-hit != 'true' || steps.conda-dependencies.outputs.cache-hit != 'true'
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate hummingbot
-          pre-commit run --all-files 
+          pre-commit run --all-files
       - name: Compile Hummingbot
         shell: bash
         if: steps.program-changes.outputs.cache-hit != 'true' || steps.conda-dependencies.outputs.cache-hit != 'true'
@@ -135,3 +135,74 @@ jobs:
           git clone --depth 1 https://github.com/DiscordHooks/github-actions-discord-webhook.git webhook
           bash webhook/send.sh $JOB_STATUS $WEBHOOK_URL
         shell: bash
+  build_gateway:
+    name: Gateway build + unit tests
+    if: github.base_ref == 'feat/gateway-v2'
+    runs-on: 'ubuntu-latest'
+
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: '16.x'
+
+      - name: Cache NPM
+        uses: actions/cache@v1
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install Dependencies
+        run: npm i --prefix ./gateway
+
+      - name: Create yml config file
+        run: |
+          cat << EOF >> ./gateway/conf/gateway-config.yml
+          VERSION: 1
+          APPNAME: 'Hummingbot Gateway API'
+          PORT: 5000
+          IP_WHITELIST: []
+          HUMMINGBOT_INSTANCE_ID: '67618e88c8b8f52342e61c6e46dc2571fa48543b'
+          LOG_PATH: './logs'
+          LOG_TO_STDOUT: true
+          GMT_OFFSET: +0800
+          CERT_PATH: ''
+          ETHEREUM_CHAIN: mainnet
+          INFURA_KEY: '6f637da72af64d99870a68d09a7df3d7'
+          ETH_GAS_STATION_ENABLE: true
+          ETH_GAS_STATION_API_KEY: '97bf1ac4acb940a30303f301208a59091760e5d26507241e9b700a3e8703'
+          ETH_GAS_STATION_GAS_LEVEL: fast
+          ETH_GAS_STATION_REFRESH_TIME: 60
+          ETH_MANUAL_GAS_PRICE: 100
+          UNISWAP_ALLOWED_SLIPPAGE: '1/100'
+          UNISWAP_GAS_LIMIT: 150688
+          UNISWAP_TTL: 300
+          EOF
+
+      - name: Create yml passphrase file
+        shell: bash
+        run: |
+          cat << EOF >> ./gateway/conf/gateway-passphrase.yml
+          CERT_PASSPHRASE: ''
+          EOF
+          chmod 0600 ./gateway/conf/gateway-passphrase.yml
+
+      - name: Build project
+        run: npm run build --prefix ./gateway
+
+      - name: Run unit test
+        run: npm run test:unit --prefix ./gateway
+
+      - name: Run unit test coverage
+        if: github.event_name == 'pull_request' && steps.program-changes.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git fetch --all -q
+          git checkout -b $GITHUB_SHA
+          npm run test:cov --prefix ./gateway
+          git diff origin/$GITHUB_BASE_REF | $(npm bin --prefix ./gateway)/diff-test-coverage -c ./gateway/coverage/lcov.info -t lcov -b 65 -l 67

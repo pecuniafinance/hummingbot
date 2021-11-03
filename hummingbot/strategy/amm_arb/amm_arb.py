@@ -115,7 +115,8 @@ class AmmArbStrategy(StrategyPyBase):
         if not self._all_markets_ready:
             self._all_markets_ready = all([market.ready for market in self.active_markets])
             if not self._all_markets_ready:
-                self.logger().warning("Markets are not ready. Please wait...")
+                unready_markets = ', '.join([market.name for market in self.active_markets if market.ready is False])
+                self.logger().warning(f"Markets are not ready ({unready_markets}). Please wait...")
                 return
             else:
                 self.logger().info("Markets are ready. Trading started.")
@@ -374,5 +375,4 @@ class AmmArbStrategy(StrategyPyBase):
     async def request_rate_in_eth(self, quote: str) -> int:
         if self._uniswap is None:
             self._uniswap = UniswapConnector([f"{quote}-WETH"], "", None)
-            await self._uniswap.initiate_pool()  # initiate to cache swap pool
         return await self._uniswap.get_quote_price(f"{quote}-WETH", True, 1)
