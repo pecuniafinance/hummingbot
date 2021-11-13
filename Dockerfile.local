@@ -1,0 +1,17 @@
+FROM continuumio/miniconda3
+
+WORKDIR /app
+
+RUN apt-get update
+RUN apt-get install -y build-essential
+
+# Create the environment:
+COPY . .
+# RUN ./clean
+# RUN ./install
+
+# Make RUN commands use the new environment:
+# RUN conda activate hummingbot
+RUN ./compile
+
+ENTRYPOINT [ "bin/hummingbot.py" ]

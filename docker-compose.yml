@@ -1,0 +1,12 @@
+version: "3.7"
+
+
+services:
+  hummingbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    container_name: hummingbot
+
+    # ports:
+    #   - "8005:8000"

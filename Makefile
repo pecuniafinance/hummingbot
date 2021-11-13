@@ -18,3 +18,12 @@ report_coverage:
 development-diff-cover:
 	coverage xml
 	diff-cover --compare-branch=origin/development coverage.xml
+
+start-hummingbot:
+	python3 bin/hummingbot.py 
+
+start-gateway:
+	cd gateway/ && yarn start
+
+docker-hummingbot:
+	docker-compose up
