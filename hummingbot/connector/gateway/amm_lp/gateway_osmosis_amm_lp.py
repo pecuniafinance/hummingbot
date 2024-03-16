@@ -171,27 +171,28 @@ class GatewayOsmosisAMMLP(ConnectorBase):
         except Exception:
             return []
 
-    # @staticmethod
-    # def is_approval_order(in_flight_order: GatewayInFlightLPOrder) -> bool:
-    #     return in_flight_order.client_order_id.split("-")[0] == "approve"
+    @staticmethod
+    def is_approval_order(in_flight_order: GatewayInFlightLPOrder) -> bool:
+        return in_flight_order.client_order_id.split("-")[0] == "approve"
 
     @property
     def approval_orders(self) -> List[GatewayInFlightLPOrder]:
         return [
             approval_order
             for approval_order in self._in_flight_orders.values()
-            if False
+            if self.is_approval_order(approval_order)
             and not approval_order.is_pending_cancel_confirmation
         ]
 
     @property
     def amm_lp_orders(self) -> List[GatewayInFlightLPOrder]:
-        return [
+        orders = [
             in_flight_order
             for in_flight_order in self._in_flight_orders.values()
-            if not False
+            if not self.is_approval_order(in_flight_order)
             and not in_flight_order.is_pending_cancel_confirmation
         ]
+        return orders
 
     @property
     def canceling_orders(self) -> List[GatewayInFlightLPOrder]:
@@ -849,7 +850,7 @@ class GatewayOsmosisAMMLP(ConnectorBase):
             if update_result["txStatus"] == 1:
                 gas_used: int = update_result["gasUsed"]
                 gas_price: Decimal = tracked_order.gas_price
-                fee: Decimal = Decimal(str(gas_used)) * Decimal(str(gas_price)) / Decimal(str(1e9))
+                fee: Decimal = Decimal(str(gas_used)) * Decimal(str(gas_price)) / Decimal(str(1e6))
                 tracked_order.fee_paid = fee
                 token_id = update_result["tokenId"]
                 if tracked_order.lp_type == LPType.ADD:
@@ -915,11 +916,12 @@ class GatewayOsmosisAMMLP(ConnectorBase):
                             )
                         )
                     tracked_order.current_state = OrderState.COMPLETED
+                    self.stop_tracking_order(tracked_order.client_order_id)
             elif update_result["txStatus"] != 0:  # tx failed
                 self.logger().info(
                     f"The LP update order {tracked_order.client_order_id} has failed according to order status API. ")
                 self.trigger_event(MarketEvent.RangePositionUpdateFailure, RangePositionUpdateFailureEvent(self.current_timestamp, tracked_order.client_order_id, tracked_order.lp_type))
-            self.stop_tracking_order(tracked_order.client_order_id)
+                self.stop_tracking_order(tracked_order.client_order_id)
 
     async def update_nft(self, tracked_orders: List[GatewayInFlightLPOrder]):
         """
